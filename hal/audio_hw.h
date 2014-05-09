@@ -1,4 +1,7 @@
 /*
+ * Copyright (c) 2013, The Linux Foundation. All rights reserved.
+ * Not a contribution.
+ *
  * Copyright (C) 2013 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,21 +22,25 @@
 
 #include <cutils/list.h>
 #include <hardware/audio.h>
-
 #include <tinyalsa/asoundlib.h>
 #include <tinycompress/tinycompress.h>
 
 #include <audio_route/audio_route.h>
+#include "voice.h"
 
 #define VISUALIZER_LIBRARY_PATH "/system/lib/soundfx/libqcomvisualizer.so"
+#define OFFLOAD_EFFECTS_BUNDLE_LIBRARY_PATH "/system/lib/soundfx/libqcompostprocbundle.so"
 
 /* Flags used to initialize acdb_settings variable that goes to ACDB library */
-#define DMIC_FLAG       0x00000002
-#define TTY_MODE_OFF    0x00000010
-#define TTY_MODE_FULL   0x00000020
-#define TTY_MODE_VCO    0x00000040
-#define TTY_MODE_HCO    0x00000080
-#define TTY_MODE_CLEAR  0xFFFFFF0F
+#define NONE_FLAG            0x00000000
+#define DMIC_FLAG            0x00000002
+#define QMIC_FLAG            0x00000004
+#define TTY_MODE_OFF         0x00000010
+#define TTY_MODE_FULL        0x00000020
+#define TTY_MODE_VCO         0x00000040
+#define TTY_MODE_HCO         0x00000080
+#define TTY_MODE_CLEAR       0xFFFFFF0F
+#define FLUENCE_MODE_CLEAR   0xFFFFFFF0
 
 #define ACDB_DEV_TYPE_OUT 1
 #define ACDB_DEV_TYPE_IN 2
@@ -54,12 +61,42 @@ typedef enum {
     USECASE_AUDIO_PLAYBACK_LOW_LATENCY,
     USECASE_AUDIO_PLAYBACK_MULTI_CH,
     USECASE_AUDIO_PLAYBACK_OFFLOAD,
+    
+    /* FM usecase */
+    USECASE_AUDIO_PLAYBACK_FM,
+
+    /* HFP Use case*/
+    USECASE_AUDIO_HFP_SCO,
+    USECASE_AUDIO_HFP_SCO_WB,
 
     /* Capture usecases */
     USECASE_AUDIO_RECORD,
+    USECASE_AUDIO_RECORD_COMPRESS,
     USECASE_AUDIO_RECORD_LOW_LATENCY,
+    USECASE_AUDIO_RECORD_FM_VIRTUAL,
 
+    /* Voice usecase */
     USECASE_VOICE_CALL,
+
+    /* Voice extension usecases */
+    USECASE_VOICE2_CALL,
+    USECASE_VOLTE_CALL,
+    USECASE_QCHAT_CALL,
+    USECASE_VOWLAN_CALL,
+    USECASE_COMPRESS_VOIP_CALL,
+
+    USECASE_INCALL_REC_UPLINK,
+    USECASE_INCALL_REC_DOWNLINK,
+    USECASE_INCALL_REC_UPLINK_AND_DOWNLINK,
+    USECASE_INCALL_REC_UPLINK_COMPRESS,
+    USECASE_INCALL_REC_DOWNLINK_COMPRESS,
+    USECASE_INCALL_REC_UPLINK_AND_DOWNLINK_COMPRESS,
+
+    USECASE_INCALL_MUSIC_UPLINK,
+    USECASE_INCALL_MUSIC_UPLINK2,
+
+    USECASE_AUDIO_SPKR_CALIB_RX,
+    USECASE_AUDIO_SPKR_CALIB_TX,
     AUDIO_USECASE_MAX
 } audio_usecase_t;
 
@@ -143,6 +180,8 @@ struct stream_in {
     audio_channel_mask_t channel_mask;
     audio_usecase_t usecase;
     bool enable_aec;
+    bool enable_ns;
+    audio_format_t format;
 
     struct audio_device *dev;
 };
@@ -150,7 +189,9 @@ struct stream_in {
 typedef enum {
     PCM_PLAYBACK,
     PCM_CAPTURE,
-    VOICE_CALL
+    VOICE_CALL,
+    VOIP_CALL,
+    PCM_HFP_CALL
 } usecase_type_t;
 
 union stream_ptr {
@@ -176,27 +217,49 @@ struct audio_device {
     audio_devices_t out_device;
     struct stream_in *active_input;
     struct stream_out *primary_output;
-    int in_call;
-    float voice_volume;
-    bool mic_mute;
-    int tty_mode;
     bool bluetooth_nrec;
     bool screen_off;
-    struct pcm *voice_call_rx;
-    struct pcm *voice_call_tx;
     int *snd_dev_ref_cnt;
     struct listnode usecase_list;
     struct audio_route *audio_route;
     int acdb_settings;
     bool speaker_lr_swap;
+    struct voice voice;
     unsigned int cur_hdmi_channels;
+    unsigned int cur_wfd_channels;
 
+    int snd_card;
     void *platform;
 
     void *visualizer_lib;
-    int (*visualizer_start_output)(audio_io_handle_t);
-    int (*visualizer_stop_output)(audio_io_handle_t);
+    int (*visualizer_start_output)(audio_io_handle_t, int);
+    int (*visualizer_stop_output)(audio_io_handle_t, int);
+    void *offload_effects_lib;
+    int (*offload_effects_start_output)(audio_io_handle_t, int);
+    int (*offload_effects_stop_output)(audio_io_handle_t, int);
 };
+
+int select_devices(struct audio_device *adev,
+                          audio_usecase_t uc_id);
+int disable_audio_route(struct audio_device *adev,
+                               struct audio_usecase *usecase,
+                               bool update_mixer);
+int disable_snd_device(struct audio_device *adev,
+                              snd_device_t snd_device,
+                              bool update_mixer);
+int enable_snd_device(struct audio_device *adev,
+                             snd_device_t snd_device,
+                             bool update_mixer);
+int enable_audio_route(struct audio_device *adev,
+                              struct audio_usecase *usecase,
+                              bool update_mixer);
+struct audio_usecase *get_usecase_from_list(struct audio_device *adev,
+                                                   audio_usecase_t uc_id);
+
+#define LITERAL_TO_STRING(x) #x
+#define CHECK(condition) LOG_ALWAYS_FATAL_IF(!(condition), "%s",\
+            __FILE__ ":" LITERAL_TO_STRING(__LINE__)\
+            " ASSERT_FATAL(" #condition ") failed.")
 
 /*
  * NOTE: when multiple mutexes have to be acquired, always take the

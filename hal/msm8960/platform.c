@@ -1,4 +1,7 @@
 /*
+ * Copyright (c) 2013, The Linux Foundation. All rights reserved.
+ * Not a contribution.
+ *
  * Copyright (C) 2013 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,10 +31,6 @@
 
 #define LIB_ACDB_LOADER "libacdbloader.so"
 #define LIB_CSD_CLIENT "libcsd-client.so"
-
-#define DUALMIC_CONFIG_NONE 0      /* Target does not contain 2 mics */
-#define DUALMIC_CONFIG_ENDFIRE 1
-#define DUALMIC_CONFIG_BROADSIDE 2
 
 /*
  * This is the sysfs path for the HDMI audio data block
@@ -74,14 +73,17 @@ typedef int (*csd_start_voice_t)();
 typedef int (*csd_stop_voice_t)();
 
 
-/* Audio calibration related functions */
 struct platform_data {
     struct audio_device *adev;
     bool fluence_in_spkr_mode;
     bool fluence_in_voice_call;
     bool fluence_in_voice_rec;
+    int  fluence_type;
     int  dualmic_config;
 
+    void *hw_info;
+
+    /* Audio calibration related functions */
     void *acdb_handle;
     acdb_init_t acdb_init;
     acdb_deallocate_t acdb_deallocate;
@@ -123,7 +125,6 @@ static const char * const device_table[SND_DEVICE_MAX] = {
     [SND_DEVICE_OUT_HDMI] = "hdmi",
     [SND_DEVICE_OUT_SPEAKER_AND_HDMI] = "speaker-and-hdmi",
     [SND_DEVICE_OUT_BT_SCO] = "bt-sco-headset",
-    [SND_DEVICE_OUT_VOICE_HANDSET_TMUS] = "voice-handset-tmus",
     [SND_DEVICE_OUT_VOICE_TTY_FULL_HEADPHONES] = "voice-tty-full-headphones",
     [SND_DEVICE_OUT_VOICE_TTY_VCO_HEADPHONES] = "voice-tty-vco-headphones",
     [SND_DEVICE_OUT_VOICE_TTY_HCO_HANDSET] = "voice-tty-hco-handset",
@@ -140,19 +141,14 @@ static const char * const device_table[SND_DEVICE_MAX] = {
     [SND_DEVICE_IN_HDMI_MIC] = "hdmi-mic",
     [SND_DEVICE_IN_BT_SCO_MIC] = "bt-sco-mic",
     [SND_DEVICE_IN_CAMCORDER_MIC] = "camcorder-mic",
-    [SND_DEVICE_IN_VOICE_DMIC_EF] = "voice-dmic-ef",
-    [SND_DEVICE_IN_VOICE_DMIC_BS] = "voice-dmic-bs",
-    [SND_DEVICE_IN_VOICE_DMIC_EF_TMUS] = "voice-dmic-ef-tmus",
-    [SND_DEVICE_IN_VOICE_SPEAKER_DMIC_EF] = "voice-speaker-dmic-ef",
-    [SND_DEVICE_IN_VOICE_SPEAKER_DMIC_BS] = "voice-speaker-dmic-bs",
+    [SND_DEVICE_IN_VOICE_DMIC] = "voice-dmic-ef",
+    [SND_DEVICE_IN_VOICE_SPEAKER_DMIC] = "voice-speaker-dmic-ef",
     [SND_DEVICE_IN_VOICE_TTY_FULL_HEADSET_MIC] = "voice-tty-full-headset-mic",
     [SND_DEVICE_IN_VOICE_TTY_VCO_HANDSET_MIC] = "voice-tty-vco-handset-mic",
     [SND_DEVICE_IN_VOICE_TTY_HCO_HEADSET_MIC] = "voice-tty-hco-headset-mic",
     [SND_DEVICE_IN_VOICE_REC_MIC] = "voice-rec-mic",
-    [SND_DEVICE_IN_VOICE_REC_DMIC_EF] = "voice-rec-dmic-ef",
-    [SND_DEVICE_IN_VOICE_REC_DMIC_BS] = "voice-rec-dmic-bs",
-    [SND_DEVICE_IN_VOICE_REC_DMIC_EF_FLUENCE] = "voice-rec-dmic-ef-fluence",
-    [SND_DEVICE_IN_VOICE_REC_DMIC_BS_FLUENCE] = "voice-rec-dmic-bs-fluence",
+    [SND_DEVICE_IN_VOICE_REC_DMIC] = "voice-rec-dmic-ef",
+    [SND_DEVICE_IN_VOICE_REC_DMIC_FLUENCE] = "voice-rec-dmic-ef-fluence",
 };
 
 /* ACDB IDs (audio DSP path configuration IDs) for each sound device */
@@ -168,7 +164,6 @@ static const int acdb_device_table[SND_DEVICE_MAX] = {
     [SND_DEVICE_OUT_HDMI] = 18,
     [SND_DEVICE_OUT_SPEAKER_AND_HDMI] = 14,
     [SND_DEVICE_OUT_BT_SCO] = 22,
-    [SND_DEVICE_OUT_VOICE_HANDSET_TMUS] = 81,
     [SND_DEVICE_OUT_VOICE_TTY_FULL_HEADPHONES] = 17,
     [SND_DEVICE_OUT_VOICE_TTY_VCO_HEADPHONES] = 17,
     [SND_DEVICE_OUT_VOICE_TTY_HCO_HANDSET] = 37,
@@ -184,50 +179,19 @@ static const int acdb_device_table[SND_DEVICE_MAX] = {
     [SND_DEVICE_IN_HDMI_MIC] = 4,
     [SND_DEVICE_IN_BT_SCO_MIC] = 21,
     [SND_DEVICE_IN_CAMCORDER_MIC] = 61,
-    [SND_DEVICE_IN_VOICE_DMIC_EF] = 6,
-    [SND_DEVICE_IN_VOICE_DMIC_BS] = 5,
-    [SND_DEVICE_IN_VOICE_DMIC_EF_TMUS] = 91,
-    [SND_DEVICE_IN_VOICE_SPEAKER_DMIC_EF] = 13,
-    [SND_DEVICE_IN_VOICE_SPEAKER_DMIC_BS] = 12,
+    [SND_DEVICE_IN_VOICE_DMIC] = 6,
+    [SND_DEVICE_IN_VOICE_SPEAKER_DMIC] = 13,
     [SND_DEVICE_IN_VOICE_TTY_FULL_HEADSET_MIC] = 16,
     [SND_DEVICE_IN_VOICE_TTY_VCO_HANDSET_MIC] = 36,
     [SND_DEVICE_IN_VOICE_TTY_HCO_HEADSET_MIC] = 16,
     [SND_DEVICE_IN_VOICE_REC_MIC] = 62,
     /* TODO: Update with proper acdb ids */
-    [SND_DEVICE_IN_VOICE_REC_DMIC_EF] = 62,
-    [SND_DEVICE_IN_VOICE_REC_DMIC_BS] = 62,
-    [SND_DEVICE_IN_VOICE_REC_DMIC_EF_FLUENCE] = 6,
-    [SND_DEVICE_IN_VOICE_REC_DMIC_BS_FLUENCE] = 5,
+    [SND_DEVICE_IN_VOICE_REC_DMIC] = 62,
+    [SND_DEVICE_IN_VOICE_REC_DMIC_FLUENCE] = 6,
 };
 
 #define DEEP_BUFFER_PLATFORM_DELAY (29*1000LL)
 #define LOW_LATENCY_PLATFORM_DELAY (13*1000LL)
-
-static pthread_once_t check_op_once_ctl = PTHREAD_ONCE_INIT;
-static bool is_tmus = false;
-
-static void check_operator()
-{
-    char value[PROPERTY_VALUE_MAX];
-    int mccmnc;
-    property_get("gsm.sim.operator.numeric",value,"0");
-    mccmnc = atoi(value);
-    ALOGD("%s: tmus mccmnc %d", __func__, mccmnc);
-    switch(mccmnc) {
-    /* TMUS MCC(310), MNC(490, 260, 026) */
-    case 310490:
-    case 310260:
-    case 310026:
-        is_tmus = true;
-        break;
-    }
-}
-
-bool is_operator_tmus()
-{
-    pthread_once(&check_op_once_ctl, check_operator);
-    return is_tmus;
-}
 
 static int set_echo_reference(struct mixer *mixer, const char* ec_ref)
 {
@@ -251,6 +215,7 @@ void *platform_init(struct audio_device *adev)
     char baseband[PROPERTY_VALUE_MAX];
     char value[PROPERTY_VALUE_MAX];
     struct platform_data *my_data;
+    const char *snd_card_name;
 
     adev->mixer = mixer_open(MIXER_CARD);
 
@@ -267,34 +232,40 @@ void *platform_init(struct audio_device *adev)
 
     my_data = calloc(1, sizeof(struct platform_data));
 
+    snd_card_name = mixer_get_name(adev->mixer);
+    my_data->hw_info = hw_info_init(snd_card_name);
+    if (!my_data->hw_info) {
+        ALOGE("%s: Failed to init hardware info", __func__);
+    }
+
     my_data->adev = adev;
-    my_data->dualmic_config = DUALMIC_CONFIG_NONE;
     my_data->fluence_in_spkr_mode = false;
     my_data->fluence_in_voice_call = false;
     my_data->fluence_in_voice_rec = false;
+    my_data->fluence_type = FLUENCE_NONE;
 
-    property_get("persist.audio.dualmic.config",value,"");
-    if (!strcmp("broadside", value)) {
-        my_data->dualmic_config = DUALMIC_CONFIG_BROADSIDE;
-        adev->acdb_settings |= DMIC_FLAG;
-    } else if (!strcmp("endfire", value)) {
-        my_data->dualmic_config = DUALMIC_CONFIG_ENDFIRE;
-        adev->acdb_settings |= DMIC_FLAG;
+    property_get("ro.qc.sdk.audio.fluencetype", value, "");
+    if (!strncmp("fluencepro", value, sizeof("fluencepro"))) {
+        my_data->fluence_type = FLUENCE_QUAD_MIC;
+    } else if (!strncmp("fluence", value, sizeof("fluence"))) {
+        my_data->fluence_type = FLUENCE_DUAL_MIC;
+    } else {
+        my_data->fluence_type = FLUENCE_NONE;
     }
 
-    if (my_data->dualmic_config != DUALMIC_CONFIG_NONE) {
+    if (my_data->fluence_type != FLUENCE_NONE) {
         property_get("persist.audio.fluence.voicecall",value,"");
-        if (!strcmp("true", value)) {
+        if (!strncmp("true", value, sizeof("true"))) {
             my_data->fluence_in_voice_call = true;
         }
 
         property_get("persist.audio.fluence.voicerec",value,"");
-        if (!strcmp("true", value)) {
+        if (!strncmp("true", value, sizeof("true"))) {
             my_data->fluence_in_voice_rec = true;
         }
 
         property_get("persist.audio.fluence.speaker",value,"");
-        if (!strcmp("true", value)) {
+        if (!strncmp("true", value, sizeof("true"))) {
             my_data->fluence_in_spkr_mode = true;
         }
     }
@@ -364,6 +335,9 @@ void *platform_init(struct audio_device *adev)
 
 void platform_deinit(void *platform)
 {
+    struct platform_data *my_data = (struct platform_data *)platform;
+
+    hw_info_deinit(my_data->hw_info);
     free(platform);
 }
 
@@ -375,16 +349,36 @@ const char *platform_get_snd_device_name(snd_device_t snd_device)
         return "";
 }
 
+int platform_get_snd_device_name_extn(void *platform, snd_device_t snd_device,
+                                      char *device_name)
+{
+    struct platform_data *my_data = (struct platform_data *)platform;
+
+    if (snd_device >= SND_DEVICE_MIN && snd_device < SND_DEVICE_MAX) {
+        strlcpy(device_name, device_table[snd_device], DEVICE_NAME_MAX_SIZE);
+        hw_info_append_hw_type(my_data->hw_info, snd_device, device_name);
+    } else {
+        strlcpy(device_name, "", DEVICE_NAME_MAX_SIZE);
+        return -EINVAL;
+    }
+
+    return 0;
+}
+
 void platform_add_backend_name(char *mixer_path, snd_device_t snd_device)
 {
     if (snd_device == SND_DEVICE_IN_BT_SCO_MIC)
-        strcat(mixer_path, " bt-sco");
+        strlcat(mixer_path, " bt-sco", MIXER_PATH_MAX_LENGTH);
+    else if (snd_device == SND_DEVICE_IN_BT_SCO_MIC_WB)
+        strlcat(mixer_path, " bt-sco-wb", MIXER_PATH_MAX_LENGTH);
     else if(snd_device == SND_DEVICE_OUT_BT_SCO)
-        strcat(mixer_path, " bt-sco");
+        strlcat(mixer_path, " bt-sco", MIXER_PATH_MAX_LENGTH);
+    else if(snd_device == SND_DEVICE_OUT_BT_SCO_WB)
+        strlcat(mixer_path, " bt-sco-wb", MIXER_PATH_MAX_LENGTH);
     else if (snd_device == SND_DEVICE_OUT_HDMI)
-        strcat(mixer_path, " hdmi");
+        strlcat(mixer_path, " hdmi", MIXER_PATH_MAX_LENGTH);
     else if (snd_device == SND_DEVICE_OUT_SPEAKER_AND_HDMI)
-        strcat(mixer_path, " speaker-and-hdmi");
+        strlcat(mixer_path, " speaker-and-hdmi", MIXER_PATH_MAX_LENGTH);
 }
 
 int platform_get_pcm_device_id(audio_usecase_t usecase, int device_type)
@@ -587,10 +581,7 @@ snd_device_t platform_get_output_snd_device(void *platform, audio_devices_t devi
         } else if (devices & AUDIO_DEVICE_OUT_SPEAKER) {
             snd_device = SND_DEVICE_OUT_VOICE_SPEAKER;
         } else if (devices & AUDIO_DEVICE_OUT_EARPIECE) {
-            if (is_operator_tmus())
-                snd_device = SND_DEVICE_OUT_VOICE_HANDSET_TMUS;
-            else
-                snd_device = SND_DEVICE_OUT_HANDSET;
+            snd_device = SND_DEVICE_OUT_HANDSET;
         }
         if (snd_device != SND_DEVICE_NONE) {
             goto exit;
@@ -686,30 +677,28 @@ snd_device_t platform_get_input_snd_device(void *platform, audio_devices_t out_d
         }
         if (out_device & AUDIO_DEVICE_OUT_EARPIECE ||
             out_device & AUDIO_DEVICE_OUT_WIRED_HEADPHONE) {
-            if (my_data->fluence_in_voice_call == false) {
+            if (my_data->fluence_type == FLUENCE_NONE ||
+                my_data->fluence_in_voice_call == false) {
                 snd_device = SND_DEVICE_IN_HANDSET_MIC;
             } else {
-                if (my_data->dualmic_config == DUALMIC_CONFIG_ENDFIRE) {
-                    if (is_operator_tmus())
-                        snd_device = SND_DEVICE_IN_VOICE_DMIC_EF_TMUS;
-                    else
-                        snd_device = SND_DEVICE_IN_VOICE_DMIC_EF;
-                } else if(my_data->dualmic_config == DUALMIC_CONFIG_BROADSIDE)
-                    snd_device = SND_DEVICE_IN_VOICE_DMIC_BS;
-                else
-                    snd_device = SND_DEVICE_IN_HANDSET_MIC;
+                snd_device = SND_DEVICE_IN_VOICE_DMIC;
+                adev->acdb_settings |= DMIC_FLAG;
             }
         } else if (out_device & AUDIO_DEVICE_OUT_WIRED_HEADSET) {
             snd_device = SND_DEVICE_IN_VOICE_HEADSET_MIC;
         } else if (out_device & AUDIO_DEVICE_OUT_ALL_SCO) {
             snd_device = SND_DEVICE_IN_BT_SCO_MIC ;
         } else if (out_device & AUDIO_DEVICE_OUT_SPEAKER) {
-            if (my_data->fluence_in_voice_call && my_data->fluence_in_spkr_mode &&
-                    my_data->dualmic_config == DUALMIC_CONFIG_ENDFIRE) {
-                snd_device = SND_DEVICE_IN_VOICE_SPEAKER_DMIC_EF;
-            } else if (my_data->fluence_in_voice_call && my_data->fluence_in_spkr_mode &&
-                    my_data->dualmic_config == DUALMIC_CONFIG_BROADSIDE) {
-                snd_device = SND_DEVICE_IN_VOICE_SPEAKER_DMIC_BS;
+            if (my_data->fluence_type != FLUENCE_NONE &&
+                my_data->fluence_in_voice_call &&
+                my_data->fluence_in_spkr_mode) {
+                if(my_data->fluence_type == FLUENCE_DUAL_MIC) {
+                    adev->acdb_settings |= DMIC_FLAG;
+                    snd_device = SND_DEVICE_IN_VOICE_SPEAKER_DMIC;
+                } else {
+                    adev->acdb_settings |= QMIC_FLAG;
+                    snd_device = SND_DEVICE_IN_VOICE_SPEAKER_QMIC;
+                }
             } else {
                 snd_device = SND_DEVICE_IN_VOICE_SPEAKER_MIC;
             }
@@ -721,21 +710,15 @@ snd_device_t platform_get_input_snd_device(void *platform, audio_devices_t out_d
         }
     } else if (source == AUDIO_SOURCE_VOICE_RECOGNITION) {
         if (in_device & AUDIO_DEVICE_IN_BUILTIN_MIC) {
-            if (my_data->dualmic_config == DUALMIC_CONFIG_ENDFIRE) {
-                if (channel_mask == AUDIO_CHANNEL_IN_FRONT_BACK)
-                    snd_device = SND_DEVICE_IN_VOICE_REC_DMIC_EF;
-                else if (my_data->fluence_in_voice_rec)
-                    snd_device = SND_DEVICE_IN_VOICE_REC_DMIC_EF_FLUENCE;
-            } else if (my_data->dualmic_config == DUALMIC_CONFIG_BROADSIDE) {
-                if (channel_mask == AUDIO_CHANNEL_IN_FRONT_BACK)
-                    snd_device = SND_DEVICE_IN_VOICE_REC_DMIC_BS;
-                else if (my_data->fluence_in_voice_rec)
-                    snd_device = SND_DEVICE_IN_VOICE_REC_DMIC_BS_FLUENCE;
-            }
+            if (channel_mask == AUDIO_CHANNEL_IN_FRONT_BACK)
+                snd_device = SND_DEVICE_IN_VOICE_REC_DMIC;
+            else if (my_data->fluence_in_voice_rec)
+                snd_device = SND_DEVICE_IN_VOICE_REC_DMIC_FLUENCE;
 
-            if (snd_device == SND_DEVICE_NONE) {
+            if (snd_device == SND_DEVICE_NONE)
                 snd_device = SND_DEVICE_IN_VOICE_REC_MIC;
-            }
+            else
+                adev->acdb_settings |= DMIC_FLAG;
         }
     } else if (source == AUDIO_SOURCE_VOICE_COMMUNICATION) {
         if (out_device & AUDIO_DEVICE_OUT_SPEAKER)
@@ -884,6 +867,24 @@ int platform_edid_get_max_channels(void *platform)
     return max_channels;
 }
 
+void platform_get_parameters(void *platform, struct str_parms *query,
+                             struct str_parms *reply)
+{
+    LOGE("%s: Not implemented", __func__);
+}
+
+int platform_set_parameters(void *platform, struct str_parms *parms)
+{
+    LOGE("%s: Not implemented", __func__);
+    return -ENOSYS;
+}
+
+int platform_set_incall_recoding_session_id(void *platform, uint32_t session_id)
+{
+    LOGE("%s: Not implemented", __func__);
+    return -ENOSYS;
+}
+
 /* Delay in Us */
 int64_t platform_render_latency(audio_usecase_t usecase)
 {
@@ -895,4 +896,15 @@ int64_t platform_render_latency(audio_usecase_t usecase)
         default:
             return 0;
     }
+}
+
+int platform_update_usecase_from_source(int source, int usecase)
+{
+    ALOGV("%s: input source :%d", __func__, source);
+    return usecase;
+}
+
+bool platform_listen_update_status(snd_device_t snd_device)
+{
+     return false;
 }
